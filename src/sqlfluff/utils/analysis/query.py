@@ -166,11 +166,7 @@ class Selectable:
                         WildcardInfo(
                             seg,
                             [
-                                (
-                                    alias_info.ref_str
-                                    if alias_info.aliased
-                                    else alias_info.from_expression_element.raw
-                                )
+                                alias_info.ref_str
                                 for alias_info in self.select_info.table_aliases
                                 if alias_info.ref_str
                             ],

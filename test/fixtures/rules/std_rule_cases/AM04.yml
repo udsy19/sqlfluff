@@ -773,3 +773,13 @@ test_pass_templated_wildcard:
       jinja:
         context:
           cols: "*"
+
+test_pass_known_number_of_result_columns_unaliased_tablesample:
+  # An unaliased FROM target with a trailing TABLESAMPLE clause should still
+  # resolve back to the CTE by its bare name, so the known column count from
+  # the CTE is used rather than treating it as an unresolvable external table.
+  pass_str: |
+    WITH cte1 AS (
+        SELECT a, b FROM t
+    )
+    SELECT * FROM cte1 TABLESAMPLE BERNOULLI (10)
