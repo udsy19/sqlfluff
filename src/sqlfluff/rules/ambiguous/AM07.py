@@ -126,15 +126,36 @@ class Rule_AM07(BaseRule):
                     resolved = resolved and _resolved
                     continue
 
+            # NOTE: lookup_cte() pops the CTE from its owning scope so that
+            # a CTE which (invalidly) references itself can't recurse
+            # forever while we resolve it. Once resolution of *this*
+            # reference is done, put it straight back so a *different*
+            # selectable in the same set expression (e.g. another branch of
+            # a UNION) can still resolve a repeated wildcard reference to
+            # the same CTE.
+            owner = self._find_cte_owner(root_query, cte_name)
             cte = root_query.lookup_cte(cte_name)
             if cte:
                 _cols, _resolved = self.__resolve_wild_query(cte)
+                if owner is not None:
+                    owner.ctes[cte_name.upper()] = cte
                 num_cols += _cols
                 resolved = resolved and _resolved
             else:
                 # Unable to resolve
                 resolved = False
         return num_cols, resolved
+
+    @staticmethod
+    def _find_cte_owner(query: Query, name: str) -> Optional[Query]:
+        """Find which Query in the parent chain currently owns this CTE."""
+        key = name.upper()
+        node: Optional[Query] = query
+        while node is not None:
+            if key in node.ctes:
+                return node
+            node = node.parent
+        return None
 
     def __resolve_selectable(
         self, selectable: Selectable, root_query: Query

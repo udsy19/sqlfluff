@@ -544,3 +544,40 @@ test_fail_placeholder_templater_set_columns:
       placeholder:
         param_style: dollar
         CATALOG: my_catalog
+
+test_fail_repeated_unaliased_cte_wildcard_reference:
+  desc: >
+    A CTE referenced by an unaliased wildcard more than once in the same set
+    expression must still be resolvable on every reference. Regression test:
+    the first lookup used to consume the CTE from the query's CTE scope, so
+    only the first reference could be resolved and this mismatch went
+    unreported.
+  fail_str: |
+    with cte as (
+        select
+            a, b
+        from
+            t
+    )
+    select * from cte
+    union
+    select * from cte
+    union
+    select c, d, e
+    from t2
+
+test_pass_self_referencing_non_recursive_cte_wildcard_no_crash:
+  desc: >
+    Regression test: a CTE that (invalidly) references itself via an
+    unaliased wildcard must not cause unbounded recursion while resolving
+    a sibling reference to the same CTE in another branch of the set
+    expression.
+  pass_str: |
+    with cte as (
+        select * from cte
+        union all
+        select 1 as n
+    )
+    select * from cte
+    union
+    select 1
