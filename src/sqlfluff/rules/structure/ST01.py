@@ -2,6 +2,7 @@
 
 from typing import Optional
 
+from sqlfluff.core.parser import NewlineSegment, WhitespaceSegment
 from sqlfluff.core.rules import BaseRule, LintFix, LintResult, RuleContext
 from sqlfluff.core.rules.crawlers import SegmentSeekerCrawler
 from sqlfluff.utils.functional import FunctionalContext, sp
@@ -70,9 +71,32 @@ class Rule_ST01(BaseRule):
                 start_seg=else_clause[0],
                 loop_while=sp.or_(sp.is_type("whitespace", "newline"), sp.is_meta()),
             )
-            return LintResult(
-                anchor=context.segment,
-                fixes=[LintFix.delete(else_clause[0])]
-                + [LintFix.delete(seg) for seg in before_else],
-            )
+            fixes = [LintFix.delete(else_clause[0])] + [
+                LintFix.delete(seg) for seg in before_else
+            ]
+
+            # If the "ELSE" clause contains a comment (e.g. `else /* note
+            # */ null`), deleting the whole clause would silently discard
+            # it. Re-home any such comments onto their own line straight
+            # after the last "WHEN" clause instead, so nothing is lost.
+            comments = else_clause.children(sp.is_comment())
+            if comments:
+                last_when = children.last(sp.is_type("when_clause"))
+                indent_ws = before_else.first(sp.is_type("whitespace"))
+                indent_str = "".join(seg.raw for seg in indent_ws)
+                new_segments = []
+                for comment in comments:
+                    new_segments += [
+                        NewlineSegment(),
+                        WhitespaceSegment(indent_str),
+                        comment,
+                    ]
+                if last_when:
+                    fixes.append(
+                        LintFix.create_after(
+                            last_when[0], new_segments, source=new_segments
+                        )
+                    )
+
+            return LintResult(anchor=context.segment, fixes=fixes)
         return None
