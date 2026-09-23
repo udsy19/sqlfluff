@@ -6461,11 +6461,43 @@ class TableExpressionSegment(BaseSegment):
     )
 
 
+class GroupingExpressionList(BaseSegment):
+    """A `GROUP BY` clause expression list like in `ROLLUP`/`CUBE`.
+
+    Overriding ANSI: ANSI's version terminates on `QUALIFY`, which T-SQL does
+    not register as a keyword at all (T-SQL rebuilds its own keyword universe
+    rather than inheriting ANSI's, see `tsql_dialect.sets("unreserved_keywords")`
+    above), so referencing it here would raise a dialect-expansion error. The
+    terminators are dropped rather than reused: this grammar is only ever
+    matched inside a `Bracketed(...)` (from `CubeRollupClauseSegment` and
+    `GroupingSetsClauseSegment` below), so the closing bracket already bounds
+    the match.
+    """
+
+    type = "grouping_expression_list"
+
+    match_grammar: Matchable = Sequence(
+        Delimited(
+            OneOf(
+                Ref("ColumnReferenceSegment"),
+                # Can `GROUP BY ROLLUP(1)`
+                Ref("NumericLiteralSegment"),
+                # Can `GROUP BY ROLLUP(coalesce(col, 1))`
+                Ref("ExpressionSegment"),
+                Bracketed(),  # Allows empty parentheses
+            ),
+        ),
+    )
+
+
 class GroupByClauseSegment(BaseSegment):
     """A `GROUP BY` clause like in `SELECT`.
 
     Overriding ANSI to add T-SQL specific terminators that prevent
-    GROUP BY from consuming subsequent statements when semicolons are omitted.
+    GROUP BY from consuming subsequent statements when semicolons are omitted,
+    while still supporting `GROUPING SETS (...)` and `ROLLUP(...)`/`CUBE(...)`,
+    which ANSI's version supports but which T-SQL's own override previously
+    dropped.
     """
 
     type = "groupby_clause"
@@ -6473,35 +6505,39 @@ class GroupByClauseSegment(BaseSegment):
         "GROUP",
         "BY",
         Indent,
-        Delimited(
-            OneOf(
-                Ref("ColumnReferenceSegment"),
-                # Can `GROUP BY 1`
-                Ref("NumericLiteralSegment"),
-                # Can `GROUP BY coalesce(col, 1)`
-                Ref("ExpressionSegment"),
+        OneOf(
+            Ref("GroupingSetsClauseSegment"),
+            Ref("CubeRollupClauseSegment"),
+            Delimited(
+                OneOf(
+                    Ref("ColumnReferenceSegment"),
+                    # Can `GROUP BY 1`
+                    Ref("NumericLiteralSegment"),
+                    # Can `GROUP BY coalesce(col, 1)`
+                    Ref("ExpressionSegment"),
+                ),
+                terminators=[
+                    # Clauses that can follow GROUP BY
+                    "HAVING",
+                    "WINDOW",
+                    Sequence("ORDER", "BY"),
+                    "OPTION",
+                    "FOR",
+                    # Set operators
+                    "UNION",
+                    "INTERSECT",
+                    "EXCEPT",
+                    # Statement-level keywords that start new statements
+                    "SELECT",
+                    "INSERT",
+                    "UPDATE",
+                    "DELETE",
+                    "MERGE",
+                    "WITH",
+                    # T-SQL specific: semicolons and statement terminators
+                    Ref("DelimiterGrammar"),
+                ],
             ),
-            terminators=[
-                # Clauses that can follow GROUP BY
-                "HAVING",
-                "WINDOW",
-                Sequence("ORDER", "BY"),
-                "OPTION",
-                "FOR",
-                # Set operators
-                "UNION",
-                "INTERSECT",
-                "EXCEPT",
-                # Statement-level keywords that start new statements
-                "SELECT",
-                "INSERT",
-                "UPDATE",
-                "DELETE",
-                "MERGE",
-                "WITH",
-                # T-SQL specific: semicolons and statement terminators
-                Ref("DelimiterGrammar"),
-            ],
         ),
         Ref("WithRollupClauseSegment", optional=True),
         Dedent,
