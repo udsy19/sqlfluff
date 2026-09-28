@@ -1322,3 +1322,55 @@ test_fail_redundantly_bracketed_join_target_unknown_table_snowflake:
   configs:
     core:
       dialect: snowflake
+
+test_pass_alias_reference_case_insensitive_upper_fold:
+  # ansi folds unquoted identifiers to upper, so a lowercase alias and an
+  # uppercase reference to it denote the same identifier.
+  pass_str: |
+    SELECT CI.id
+    FROM source_table AS ci
+    JOIN second_table AS b ON ci.id = b.id;
+  configs:
+    core:
+      dialect: ansi
+
+test_pass_alias_reference_case_insensitive_lower_fold:
+  # postgres folds unquoted identifiers to lower, so an uppercase alias and a
+  # lowercase reference to it denote the same identifier.
+  pass_str: |
+    SELECT ci.id
+    FROM source_table AS CI
+    JOIN second_table AS b ON CI.id = b.id;
+  configs:
+    core:
+      dialect: postgres
+
+test_pass_table_reference_case_insensitive_no_alias:
+  # An unaliased table's own name is also matched case-insensitively.
+  pass_str: |
+    SELECT SOURCE_TABLE.id
+    FROM source_table
+    JOIN other_table AS o ON source_table.id = o.id;
+  configs:
+    core:
+      dialect: ansi
+
+test_fail_quoted_alias_reference_stays_case_sensitive:
+  # Quoted identifiers are NOT case-folded in ansi, so this must still fail.
+  fail_str: |
+    SELECT "CI".id
+    FROM source_table AS "ci";
+  configs:
+    core:
+      dialect: ansi
+
+test_fail_unknown_alias_case_insensitive_fold_does_not_hide_it:
+  # A genuinely undefined reference must still be flagged: case-insensitive
+  # matching must not turn into "always match".
+  fail_str: |
+    SELECT BOGUS.id
+    FROM source_table AS ci
+    JOIN second_table AS b ON ci.id = b.id;
+  configs:
+    core:
+      dialect: ansi

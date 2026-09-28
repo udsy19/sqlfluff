@@ -112,11 +112,32 @@ class Rule_RF01(BaseRule):
         result: list[tuple[str, ...]] = []
         if alias_info.aliased:
             result.append((alias_info.ref_str,))
+            if alias_info.segment:
+                # alias_info.ref_str is deliberately un-casefolded (it is used
+                # elsewhere to reproduce the alias's literal written form), so
+                # on its own it only matches a reference spelled with
+                # identical case. Add the dialect-normalized spelling too, so
+                # an unquoted alias resolves case-insensitively per the
+                # dialect's own casing rules, matching how RF02/RF07 already
+                # compare identifiers.
+                result.append((alias_info.segment.raw_normalized(),))
         if alias_info.object_reference:
             result += self._table_ref_as_tuple(
                 cast(ObjectReferenceSegment, alias_info.object_reference), dialect
             )
         return result
+
+    def _casefolded_part(self, ref: ObjectReferencePart) -> str:
+        """Return `ref`'s dialect-normalized (casefolded) spelling.
+
+        This mirrors what `raw_normalized()` does, but `raw_normalized()` has
+        no way to take `ref.part` as an override value (unlike `.normalize()`)
+        -- needed because a "part" can span multiple segments, e.g. BigQuery
+        hyphenated names -- so the casefold is applied by hand here instead.
+        """
+        value = ref.segments[0].normalize(ref.part)
+        casefold = ref.segments[0].casefold
+        return casefold(value) if casefold else value
 
     def _table_ref_as_tuple(
         self,
@@ -127,6 +148,10 @@ class Rule_RF01(BaseRule):
         return [
             tuple(ref.part for ref in raw_references),
             tuple(ref.segments[0].normalize(ref.part) for ref in raw_references),
+            # Also compare on the dialect-normalized (casefolded) spelling, so
+            # an unquoted identifier resolves regardless of which case it is
+            # written in, matching how RF02/RF07 already compare identifiers.
+            tuple(self._casefolded_part(ref) for ref in raw_references),
         ]
 
     def _analyze_table_references(
@@ -254,6 +279,9 @@ class Rule_RF01(BaseRule):
                     ),
                 )
             )
+            tbl_refs.append(
+                (tr, (self._casefolded_part(sr), self._casefolded_part(tr)))
+            )
         # Maybe check for simple table references. Two cases:
         # - For most dialects, skip this if it's a schema+table reference -- the
         #   reference was specific, so we shouldn't ignore that by looking
@@ -271,6 +299,7 @@ class Rule_RF01(BaseRule):
             ):
                 tbl_refs.append((tr, (tr.part,)))
                 tbl_refs.append((tr, (tr.segments[0].normalize(tr.part),)))
+                tbl_refs.append((tr, (self._casefolded_part(tr),)))
         return tbl_refs
 
     def _resolve_reference(
