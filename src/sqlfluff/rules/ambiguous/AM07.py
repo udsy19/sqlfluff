@@ -126,11 +126,21 @@ class Rule_AM07(BaseRule):
                     resolved = resolved and _resolved
                     continue
 
+            # NOTE: ``lookup_cte`` pops the CTE from its owning scope. That
+            # pop guards a self-referencing CTE from recursing forever while
+            # it is being resolved below. However it also means a repeated
+            # unaliased wildcard reference to the same CTE in another branch
+            # of this set expression would fail to resolve. To support that,
+            # we restore the CTE to its owning scope *after* resolution has
+            # completed (not during), which keeps the self-recursion guard
+            # intact while letting a later reference resolve.
             cte = root_query.lookup_cte(cte_name)
             if cte:
                 _cols, _resolved = self.__resolve_wild_query(cte)
                 num_cols += _cols
                 resolved = resolved and _resolved
+                if cte.parent is not None:
+                    cte.parent.ctes[cte_name.upper()] = cte
             else:
                 # Unable to resolve
                 resolved = False

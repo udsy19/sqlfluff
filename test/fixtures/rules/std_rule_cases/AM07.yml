@@ -544,3 +544,28 @@ test_fail_placeholder_templater_set_columns:
       placeholder:
         param_style: dollar
         CATALOG: my_catalog
+
+test_fail_repeated_unaliased_wildcard_cte:
+  # Regression for #8542: the same CTE referenced by a bare unaliased
+  # wildcard in more than one branch of a set expression must still resolve
+  # in every branch, so a real column-count mismatch (2, 2, 3) is reported.
+  fail_str: |
+    WITH cte AS (
+        SELECT a, b FROM t
+    )
+    SELECT * FROM cte
+    UNION
+    SELECT * FROM cte
+    UNION
+    SELECT c, d, e
+    FROM t2
+
+test_pass_self_referencing_cte_no_recursion:
+  # The pop-then-restore fix must keep guarding a self-referencing CTE
+  # (invalid SQL that still parses) from recursing forever. This query must
+  # terminate; with the fix it resolves without reporting a mismatch.
+  pass_str: |
+    WITH cte AS (SELECT * FROM cte UNION ALL SELECT 1 AS n)
+    SELECT * FROM cte
+    UNION
+    SELECT 1
